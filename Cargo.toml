@@ -1,0 +1,11 @@
+[package]
+name = "git_stats"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+git2 = "0.18"       # The core git library
+clap = { version = "4.4", features = ["derive"] } # CLI argument parser
+chrono = "0.4"      # Date and time formatting
+anyhow = "1.0"      # Easy error handling
+charming = { version = "0.6.0", features = ["ssr", "image", "resvg", "ssr-raster", "web-sys"] }
