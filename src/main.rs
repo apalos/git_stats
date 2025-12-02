@@ -19,7 +19,7 @@ struct Args {
         path: PathBuf,
 
         #[arg(short, long)]
-        email: String,
+        email: Vec<String>,
 
         #[arg(short, long)]
         since: Option<String>,
@@ -52,7 +52,7 @@ fn main() -> Result<()> {
         revwalk.set_sorting(Sort::TIME)?;
 
         println!("Scanning repository: {:?}", args.path.canonicalize()?);
-        println!("Target Email:        {}", args.email);
+        println!("Target Emails:       {}", args.email.join(", "));
         if let Some(d) = since_date {
                 println!("Timeframe:           Since {}", d.format("%Y-%m-%d"));
         }
@@ -66,7 +66,7 @@ fn main() -> Result<()> {
         let mut tested_count = 0;
         let mut reported_count = 0;
 
-        let search_email = args.email.to_lowercase();
+        let search_emails: Vec<String> = args.email.iter().map(|e| e.to_lowercase()).collect();
 
         for oid in revwalk {
                 total_scanned += 1;
@@ -83,9 +83,9 @@ fn main() -> Result<()> {
                 let author = commit.author();
                 if let Some(author_email) = author.email() {
                         let is_match = if args.partial {
-                                author_email.contains(&args.email)
+                                search_emails.iter().any(|email| author_email.contains(email))
                         } else {
-                                author_email == args.email
+                                search_emails.iter().any(|email| author_email == email)
                         };
                         if is_match {
                                 if args.verbose {
@@ -96,7 +96,7 @@ fn main() -> Result<()> {
                 }
 
                 if let Some(msg) = commit.message() {
-                        analyze_trailers(msg, &search_email, &mut reviewed_count, &mut acked_count, &mut tested_count, &mut reported_count);
+                        analyze_trailers(msg, &search_emails, &mut reviewed_count, &mut acked_count, &mut tested_count, &mut reported_count);
                 }
         }
 
@@ -141,10 +141,10 @@ fn main() -> Result<()> {
         Ok(())
 }
 
-fn analyze_trailers(msg: &str, target: &str, reviewed: &mut i32, acked: &mut i32, tested: &mut i32, reported: &mut i32) {
+fn analyze_trailers(msg: &str, targets: &[String], reviewed: &mut i32, acked: &mut i32, tested: &mut i32, reported: &mut i32) {
         for line in msg.lines() {
                 let lower = line.trim().to_lowercase();
-                if lower.contains(target) {
+                if targets.iter().any(|target| lower.contains(target)) {
                         if lower.starts_with("reviewed-by:") { *reviewed += 1; }
                         else if lower.starts_with("acked-by:") { *acked += 1; }
                         else if lower.starts_with("tested-by:") { *tested += 1; }
