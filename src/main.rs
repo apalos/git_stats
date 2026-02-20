@@ -123,36 +123,14 @@ fn main() -> Result<()> {
                 if let Some(msg) = commit.message() {
                         if let Some(trailers) = analyze_trailers(msg, &search_emails)
                         {
-                            if args.squash_touched {
-                                if trailers.signed_off > 0 && !is_match {
-                                    signed_off_count += 1;
-                                }
-                                if trailers.reviewed > 0 {
-                                    reviewed_count += 1;
-                                }
-                                if trailers.acked > 0 {
-                                    acked_count += 1;
-                                }
-                                if trailers.tested > 0 {
-                                    tested_count += 1;
-                                }
-                                if trailers.reported > 0 {
-                                    reported_count += 1;
-                                }
-                                if !is_match {
-                                    commits_touched += 1;
-                                }
-                            } else {
-                                // Original counting approach: accumulate all trailers
-                                signed_off_count += trailers.signed_off as i32;
-                                reviewed_count += trailers.reviewed as i32;
-                                acked_count += trailers.acked as i32;
-                                tested_count += trailers.tested as i32;
-                                reported_count += trailers.reported as i32;
+                            signed_off_count += trailers.signed_off as i32;
+                            reviewed_count += trailers.reviewed as i32;
+                            acked_count += trailers.acked as i32;
+                            tested_count += trailers.tested as i32;
+                            reported_count += trailers.reported as i32;
 
-                                if !is_match {
-                                    commits_touched += 1;
-                                }
+                            if !is_match {
+                                commits_touched += 1;
                             }
                         } else if !is_match {
                             commits_ignored += 1;
