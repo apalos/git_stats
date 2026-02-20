@@ -29,21 +29,24 @@ struct Args {
 
         #[arg(long, default_value_t = false)]
         verbose: bool,
+
+        #[arg(long, default_value_t = false)]
+        squash_touched: bool,
 }
 
 #[derive(Default, Debug)]
 struct TrailerState {
-    signed_off: bool,
-    reviewed: bool,
-    acked: bool,
-    tested: bool,
-    reported: bool,
+    signed_off: u32,
+    reviewed: u32,
+    acked: u32,
+    tested: u32,
+    reported: u32,
 }
 
 impl TrailerState {
     // Helper to check if any flag has been latched
     fn any_active(&self) -> bool {
-        self.signed_off || self.reviewed || self.acked || self.tested || self.reported
+        self.signed_off > 0 || self.reviewed > 0 || self.acked > 0 || self.tested > 0 || self.reported > 0
     }
 }
 
@@ -120,23 +123,36 @@ fn main() -> Result<()> {
                 if let Some(msg) = commit.message() {
                         if let Some(trailers) = analyze_trailers(msg, &search_emails)
                         {
-                            if trailers.signed_off && !is_match {
-                                signed_off_count += 1;
-                            }
-                            if trailers.reviewed {
-                                reviewed_count += 1;
-                            }
-                            if trailers.acked {
-                                acked_count += 1;
-                            }
-                            if trailers.tested {
-                                tested_count += 1;
-                            }
-                            if trailers.reported {
-                                reported_count += 1;
-                            }
-                            if !is_match {
-                                commits_touched += 1;
+                            if args.squash_touched {
+                                if trailers.signed_off > 0 && !is_match {
+                                    signed_off_count += 1;
+                                }
+                                if trailers.reviewed > 0 {
+                                    reviewed_count += 1;
+                                }
+                                if trailers.acked > 0 {
+                                    acked_count += 1;
+                                }
+                                if trailers.tested > 0 {
+                                    tested_count += 1;
+                                }
+                                if trailers.reported > 0 {
+                                    reported_count += 1;
+                                }
+                                if !is_match {
+                                    commits_touched += 1;
+                                }
+                            } else {
+                                // Original counting approach: accumulate all trailers
+                                signed_off_count += trailers.signed_off as i32;
+                                reviewed_count += trailers.reviewed as i32;
+                                acked_count += trailers.acked as i32;
+                                tested_count += trailers.tested as i32;
+                                reported_count += trailers.reported as i32;
+
+                                if !is_match {
+                                    commits_touched += 1;
+                                }
                             }
                         } else if !is_match {
                             commits_ignored += 1;
@@ -166,11 +182,19 @@ fn main() -> Result<()> {
         println!("Generating Pie Charts...");
 
         if total_scanned > 0 {
-                let data = vec![
-                        ("Authored", commits_authored),
-                        ("Touched", commits_touched),
-                        ("Non Linaro", commits_ignored),
-                ];
+                let data = if args.squash_touched {
+                        vec![
+                                ("Authored", commits_authored),
+                                ("Touched", commits_touched),
+                                ("Ignored", commits_ignored),
+                        ]
+                } else {
+                        vec![
+                                ("Authored", commits_authored),
+                                ("Touched (Total Trailers)", commits_touched),
+                                ("Ignored", commits_ignored),
+                        ]
+                };
                 if let Some(last_component) = args.path.file_name() {
                         let title = last_component.to_string_lossy().into_owned();
                         let pdate = if let Some(s) = &args.since {
@@ -192,15 +216,15 @@ fn analyze_trailers(msg: &str, targets: &[String]) -> Option<TrailerState> {
         let lower = line.trim().to_lowercase();
         if targets.iter().any(|target| lower.contains(target)) {
             if lower.starts_with("signed-off-by:") {
-                state.signed_off = true;
+                state.signed_off += 1;
             } else if lower.starts_with("reviewed-by:") {
-                state.reviewed = true;
+                state.reviewed += 1;
             } else if lower.starts_with("acked-by:") {
-                state.acked = true;
+                state.acked += 1;
             } else if lower.starts_with("tested-by:") {
-                state.tested = true;
+                state.tested += 1;
             } else if lower.starts_with("reported-by:") {
-                state.reported = true;
+                state.reported += 1;
             }
         }
     }
