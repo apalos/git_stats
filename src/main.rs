@@ -183,17 +183,20 @@ fn main() -> Result<()> {
 
         if total_scanned > 0 {
                 let data = if args.squash_touched {
-                        vec![
-                                ("Authored", commits_authored),
-                                ("Touched", commits_touched),
-                                ("Ignored", commits_ignored),
-                        ]
+                    vec![
+                        ("Authored", commits_authored),
+                        ("Touched", commits_touched),
+                        ("Ignored", commits_ignored),
+                    ]
                 } else {
-                        vec![
-                                ("Authored", commits_authored),
-                                ("Touched (Total Trailers)", commits_touched),
-                                ("Ignored", commits_ignored),
-                        ]
+                    vec![
+                        ("Authored", commits_authored),
+                        ("Reviewed", reviewed_count),
+                        ("Acked", acked_count),
+                        ("Tested", tested_count),
+                        ("Reported", reported_count),
+                        ("Non Linaro", commits_ignored),
+                    ]
                 };
                 if let Some(last_component) = args.path.file_name() {
                         let title = last_component.to_string_lossy().into_owned();
