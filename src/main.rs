@@ -29,6 +29,25 @@ struct Args {
 
         #[arg(long, default_value_t = false)]
         verbose: bool,
+
+        #[arg(long, default_value_t = false)]
+        squash_touched: bool,
+}
+
+#[derive(Default, Debug)]
+struct TrailerState {
+    signed_off: u32,
+    reviewed: u32,
+    acked: u32,
+    tested: u32,
+    reported: u32,
+}
+
+impl TrailerState {
+    // Helper to check if any flag has been latched
+    fn any_active(&self) -> bool {
+        self.signed_off > 0 || self.reviewed > 0 || self.acked > 0 || self.tested > 0 || self.reported > 0
+    }
 }
 
 fn main() -> Result<()> {
@@ -58,9 +77,14 @@ fn main() -> Result<()> {
         }
         println!("------------------------------------------------");
 
+        // The totals
         let mut commits_authored = 0;
+        let mut commits_touched = 0;
+        let mut commits_ignored = 0;
         let mut total_scanned = 0;
 
+        // Additional details
+        let mut signed_off_count = 0;
         let mut reviewed_count = 0;
         let mut acked_count = 0;
         let mut tested_count = 0;
@@ -69,7 +93,6 @@ fn main() -> Result<()> {
         let search_emails: Vec<String> = args.email.iter().map(|e| e.to_lowercase()).collect();
 
         for oid in revwalk {
-                total_scanned += 1;
                 let oid = oid.context("Failed to get object ID")?;
                 let commit = repo.find_commit(oid).context("Failed to find commit")?;
 
@@ -80,29 +103,55 @@ fn main() -> Result<()> {
                         if commit_time < since { break; }
                 }
 
+                total_scanned += 1;
+
                 let author = commit.author();
-                if let Some(author_email) = author.email() {
-                        let is_match = if args.partial {
-                                search_emails.iter().any(|email| author_email.contains(email))
-                        } else {
-                                search_emails.iter().any(|email| author_email == email)
-                        };
-                        if is_match {
-                                if args.verbose {
-                                        print_commit(&commit, &commit_time);
-                                }
-                                commits_authored += 1;
-                        }
+                let author_email = author.email().unwrap_or("");
+                let is_match = if args.partial {
+                    search_emails.iter().any(|email| author_email.contains(email))
+                } else {
+                    search_emails.iter().any(|email| author_email == email)
+                };
+
+                if is_match {
+                    commits_authored += 1;
+                    if args.verbose {
+                        print_commit(&commit, &commit_time);
+                    }
                 }
 
                 if let Some(msg) = commit.message() {
-                        analyze_trailers(msg, &search_emails, &mut reviewed_count, &mut acked_count, &mut tested_count, &mut reported_count);
+                        if let Some(trailers) = analyze_trailers(msg, &search_emails)
+                        {
+                            signed_off_count += trailers.signed_off as i32;
+                            reviewed_count += trailers.reviewed as i32;
+                            acked_count += trailers.acked as i32;
+                            tested_count += trailers.tested as i32;
+                            reported_count += trailers.reported as i32;
+
+                            if !is_match {
+                                commits_touched += 1;
+                            }
+                        } else if !is_match {
+                            commits_ignored += 1;
+                        }
+                } else {
+                    // we couldn't read the message
+                    dbg!("failed to find msg");
+                    commits_ignored += 1;
                 }
+
+            debug_assert_eq!(total_scanned, commits_authored + commits_touched + commits_ignored);
         }
+
 
         println!("\nSummary:");
         println!("Total Scanned: {}", total_scanned);
         println!("Authored:      {}", commits_authored);
+        println!("Touched:       {}", commits_touched);
+        println!("Ignored:       {}", commits_ignored);
+        println!("\nDetails:");
+        println!("Signed-off-by: {}", signed_off_count);
         println!("Reviewed:      {}", reviewed_count);
         println!("Acked:         {}", acked_count);
         println!("Tested:        {}", tested_count);
@@ -111,22 +160,22 @@ fn main() -> Result<()> {
         println!("Generating Pie Charts...");
 
         if total_scanned > 0 {
-                let total_activity = reviewed_count + acked_count + tested_count +
-                        reported_count + commits_authored;
-                let no_interaction = if total_scanned > total_activity {
-                        total_scanned - total_activity
+                let data = if args.squash_touched {
+                    vec![
+                        ("Authored", commits_authored),
+                        ("Touched", commits_touched),
+                        ("Ignored", commits_ignored),
+                    ]
                 } else {
-                        0
-                };
-
-                let data = vec![
+                    vec![
                         ("Authored", commits_authored),
                         ("Reviewed", reviewed_count),
                         ("Acked", acked_count),
                         ("Tested", tested_count),
                         ("Reported", reported_count),
-                        ("Non Linaro", no_interaction),
-                ];
+                        ("Non Linaro", commits_ignored),
+                    ]
+                };
                 if let Some(last_component) = args.path.file_name() {
                         let title = last_component.to_string_lossy().into_owned();
                         let pdate = if let Some(s) = &args.since {
@@ -141,16 +190,31 @@ fn main() -> Result<()> {
         Ok(())
 }
 
-fn analyze_trailers(msg: &str, targets: &[String], reviewed: &mut i32, acked: &mut i32, tested: &mut i32, reported: &mut i32) {
-        for line in msg.lines() {
-                let lower = line.trim().to_lowercase();
-                if targets.iter().any(|target| lower.contains(target)) {
-                        if lower.starts_with("reviewed-by:") { *reviewed += 1; }
-                        else if lower.starts_with("acked-by:") { *acked += 1; }
-                        else if lower.starts_with("tested-by:") { *tested += 1; }
-                        else if lower.starts_with("reported-by:") { *reported += 1; }
-                }
+fn analyze_trailers(msg: &str, targets: &[String]) -> Option<TrailerState> {
+    let mut state = TrailerState::default();
+
+    for line in msg.lines() {
+        let lower = line.trim().to_lowercase();
+        if targets.iter().any(|target| lower.contains(target)) {
+            if lower.starts_with("signed-off-by:") {
+                state.signed_off += 1;
+            } else if lower.starts_with("reviewed-by:") {
+                state.reviewed += 1;
+            } else if lower.starts_with("acked-by:") {
+                state.acked += 1;
+            } else if lower.starts_with("tested-by:") {
+                state.tested += 1;
+            } else if lower.starts_with("reported-by:") {
+                state.reported += 1;
+            }
         }
+    }
+
+    if state.any_active() {
+        Some(state)
+    } else {
+        None
+    }
 }
 
 fn print_commit(commit: &git2::Commit, date: &DateTime<Utc>) {
