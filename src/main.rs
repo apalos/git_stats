@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use charming::{
         Chart, ImageRenderer, ImageFormat,
         component::{Legend, Title,},
-        element::{ItemStyle, Label, LabelPosition},
+        element::{ItemStyle, Label, LabelPosition, TextStyle},
         series::{Pie},
         theme::Theme,
 };
@@ -32,6 +32,9 @@ struct Args {
 
         #[arg(long, default_value_t = false)]
         squash_touched: bool,
+
+        #[arg(long, default_value = "black")]
+        text_color: String,
 }
 
 #[derive(Default, Debug)]
@@ -183,7 +186,7 @@ fn main() -> Result<()> {
                         } else {
                                 "Overall".to_string()
                         };
-                        generate_pie_chart(&title, &pdate, data)?;
+                        generate_pie_chart(&title, &pdate, data, &args.text_color)?;
                 }
         }
 
@@ -225,7 +228,7 @@ fn print_commit(commit: &git2::Commit, date: &DateTime<Utc>) {
 }
 
 // --- CHARMING (ECharts) GENERATOR ---
-fn generate_pie_chart(title: &str, date: &str, data: Vec<(&str, i32)>) -> Result<()> {
+fn generate_pie_chart(title: &str, date: &str, data: Vec<(&str, i32)>, text_color: &str) -> Result<()> {
 
         let mut filename = title.to_string();
         filename.push_str(".png");
@@ -267,16 +270,18 @@ fn generate_pie_chart(title: &str, date: &str, data: Vec<(&str, i32)>) -> Result
                         .show(true)
                         .position(LabelPosition::Outside)
                         .formatter("{b}") // Show only the Name (e.g., "Authored")
-                        .color("#000")
+                        .color(text_color)
                 );
 
         let chart = Chart::new()
-                .legend(Legend::new().top("bottom"))
+                .legend(Legend::new().top("bottom").text_style(TextStyle::new().color(text_color)))
                 .title(
                         Title::new()
                         .text(title)
                         .subtext(date)
-                        .left("center"),
+                        .left("center")
+                        .text_style(TextStyle::new().color(text_color))
+                        .subtext_style(TextStyle::new().color(text_color)),
                 )
                 .series(inner_series) // Add Series 1
                 .series(outer_series); // Add Series 2
